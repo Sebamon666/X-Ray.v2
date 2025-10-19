@@ -29,12 +29,15 @@ with open("model_meta.json", "r", encoding="utf-8") as f:
 class_names = META["class_names"]
 input_size = int(META.get("input_size", 224))
 
-model = resnet18(weights=ResNet18_Weights.DEFAULT)
+# Cargar modelo local sin volver a descargar pesos
+model = resnet18(weights=None)
 num_features = model.fc.in_features
 model.fc = torch.nn.Linear(num_features, len(class_names))
+
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "model_resnet18.pth")
 print("Ruta actual:", os.getcwd())
 print("Archivos en esta carpeta:", os.listdir(os.path.dirname(__file__)))
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "model_resnet18.pth")
+
 model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu"))
 model.eval()
 
@@ -65,7 +68,7 @@ INDEX_HTML = r"""
   </style>
 </head>
 <body>
-  <h1>Detector de Pneumonia</h1>
+  <h1>Detector de Pneumonía</h1>
 
   <div class="row">
     <input id="file" type="file" accept="image/*" style="display:none" />
@@ -73,10 +76,7 @@ INDEX_HTML = r"""
     <button class="primary" id="btnSend">Click para predecir</button>
   </div>
 
-  <div id="dz" class="drop">
-    Arrastra y suelta una imagen aquí
-  </div>
-
+  <div id="dz" class="drop">Arrastra y suelta una imagen aquí</div>
   <div id="preview"></div>
 
   <h2>Resultado</h2>
@@ -96,27 +96,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if(!file) return;
     const url = URL.createObjectURL(file);
     preview.innerHTML = '<img src="'+url+'" style="max-width:75%;max-height:75%;display:block;margin:12px auto;border-radius:10px" />';
-
   }
 
-  // Botón “Elegir archivo…”
   btnPick.addEventListener('click', () => fileInput.click());
-
-  // Cambio de input file
   fileInput.addEventListener('change', (e) => {
     selectedFile = e.target.files && e.target.files[0] ? e.target.files[0] : null;
     showPreview(selectedFile);
   });
 
-  // Drag & Drop — prevenir navegación y styling
   ['dragenter','dragover','dragleave','drop'].forEach(evt => {
     dz.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); }, false);
   });
   dz.addEventListener('dragenter', () => dz.classList.add('dragover'));
-  dz.addEventListener('dragover',  () => dz.classList.add('dragover'));
   dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
-
-  // Soltar archivo (usar DataTransfer para sincronizar con input)
   dz.addEventListener('drop', (e) => {
     dz.classList.remove('dragover');
     const files = e.dataTransfer.files;
@@ -129,7 +121,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Enviar a /predict
   btnSend.addEventListener('click', async () => {
     if(!selectedFile){ alert('Selecciona o arrastra una imagen.'); return; }
     const fd = new FormData();
@@ -138,7 +129,9 @@ document.addEventListener('DOMContentLoaded', () => {
     resBox.textContent = 'Enviando…';
     try{
       const r = await fetch('/predict', { method:'POST', body: fd });
-      const j = await r.json();
+      const txt = await r.text();
+      let j;
+      try { j = JSON.parse(txt); } catch { throw new Error(txt); }
       if (j.prediction){
         const isNormal = (j.prediction || "").toUpperCase() === "NORMAL";
         const badgeStyle = `
@@ -155,11 +148,11 @@ document.addEventListener('DOMContentLoaded', () => {
           <div style="color:#555;margin:0">Confianza: ${(j.confidence*100).toFixed(1)} %</div>
           <div style="font-size:.9rem;color:#777;margin-top:4px">Archivo: ${j.filename}</div>
         `;
-      }else{
+      } else {
         resBox.textContent = JSON.stringify(j, null, 2);
       }
     }catch(err){
-      resBox.textContent = 'Error: ' + err;
+      resBox.textContent = 'Error: ' + err.message;
     }
   });
 });
@@ -202,10 +195,11 @@ def predict():
 
     pred_label = class_names[pred_idx.item()]
 
-    # Registrar en logs
     user_agent = request.headers.get("User-Agent", "")
     client_ip = request.headers.get("X-Forwarded-For", request.remote_addr or "")
     append_log(filename, pred_label, float(conf.item()), len(data), user_agent, client_ip)
+
+    print("✅ Pred:", pred_label, "Conf:", float(conf.item()))
 
     return jsonify({
         "ok": True,
@@ -215,6 +209,5 @@ def predict():
     }), 200
 
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
