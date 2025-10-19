@@ -197,7 +197,7 @@ def predict():
 
     with torch.no_grad():
         outputs = model(tensor)
-        probs = torch.nn.functional.softmax(outputs[0], dim=0)
+        probs = torch.nn.functional.softmax(outputs, dim=1)[0]
         conf, pred_idx = torch.max(probs, dim=0)
 
     pred_label = class_names[pred_idx.item()]
