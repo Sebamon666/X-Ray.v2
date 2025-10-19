@@ -32,7 +32,10 @@ input_size = int(META.get("input_size", 224))
 model = resnet18(weights=ResNet18_Weights.DEFAULT)
 num_features = model.fc.in_features
 model.fc = torch.nn.Linear(num_features, len(class_names))
-model.load_state_dict(torch.load("model_resnet18.pth", map_location="cpu"))
+print("Ruta actual:", os.getcwd())
+print("Archivos en esta carpeta:", os.listdir(os.path.dirname(__file__)))
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "model_resnet18.pth")
+model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu"))
 model.eval()
 
 transform = transforms.Compose([
